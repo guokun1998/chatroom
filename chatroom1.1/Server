@@ -1,0 +1,124 @@
+package chatroom;
+
+import javax.imageio.IIOException;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.EOFException;
+import java.io.IOException;
+import java.net.BindException;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.SocketException;
+import java.util.ArrayList;
+import java.util.List;
+
+/**
+ * 工作思路
+ * 申请端口号，当有Client进入时，与其输入输出接口连接
+ * 接收其输入，将输入分发给所有进程
+ */
+public class Server {
+
+    boolean started = false;
+    ServerSocket ss = null;
+    List<ChatClient> clients= new ArrayList();//存储已知的进程
+
+    public static void main(String[] args) {
+        new Server().start();
+    }
+
+    private void start() {
+        try {
+            ss = new ServerSocket(8888);//申请一个新的端口号，更改状态
+            started = true;
+        }catch (BindException e){
+            System.out.println("端口使用中");
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        /**
+         * 若为开始态ss开始准备接受数据流并与s连接
+         * 只有当Client运行后，这步才成功执行，s接口才成功建立连接
+         */
+        try {
+            while (started){
+                Socket s = ss.accept();//返回值是Socket，debug测试，当未有Client运行时，执行后阻塞
+                ChatClient c = new ChatClient(s);//以s接口建立进程
+                System.out.println("客户端接收成功");
+                new Thread(c).start();//开始进程即run方法
+                clients.add(c);//进程列表加一
+            }
+        }catch (IOException e){
+            e.printStackTrace();
+        }finally {
+            try {
+                ss.close();
+            }catch (IOException e){
+                e.printStackTrace();
+            }
+        }
+    }
+
+    class ChatClient implements Runnable{
+        private Socket s;
+        DataInputStream dis = null;
+        DataOutputStream dos = null;
+        boolean bConnected = false;
+
+        /**
+         * 构造方法，输入一个Socket，将Socket与这个类的i/o流连接，记录连接态
+         * 因为实现的是一个进程的接口，有run方法
+         * send实现的是将输出流中存储的信息写入send函数中in的字符串中
+         * run：当连接的时候就进行操作，读取输入流，对每个进程都进行send
+         * @param s
+         */
+        public ChatClient(Socket s){
+            this.s = s;
+            try {
+                dis = new DataInputStream(s.getInputStream());
+                dos = new DataOutputStream(s.getOutputStream());
+                bConnected = true;
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+        void send(String s){
+            try {
+                dos.writeUTF(s);
+            }catch (SocketException e){
+                System.out.println("对方退出了");
+            }catch (IIOException e){
+                e.printStackTrace();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        }
+
+        public void run(){
+            try {
+                while (bConnected){
+                    String str = dis.readUTF();
+                    for (int i = 0; i < clients.size(); i++) {
+                        ChatClient c = clients.get(i);
+                        c.send(str);
+                    }
+                }
+            }catch(EOFException e){
+                System.out.println("客户端退出了");
+            }catch (IOException e){
+                e.printStackTrace();
+            }finally {
+                if(dis != null)
+                    if(s != null)
+                        try {
+                            dis.close();
+                            s.close();
+                            dos.close();
+                        }catch (IOException e){
+                            e.printStackTrace();
+                        }
+            }
+        }
+    }
+}
+
